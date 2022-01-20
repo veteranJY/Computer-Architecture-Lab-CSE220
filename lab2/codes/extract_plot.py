@@ -17,7 +17,7 @@ def extract_one_spec(dir_path: str) -> List[float]:
 
 
 def plot_one_parameter(config_normal, config_modified, y_name, figure_name):
-    specs = [d.split('.')[1] for d in normal_dirs]
+    specs = [d.split('.')[1] for d in normal_dirs] + ['Average']
     x = np.arange(len(specs))
     width = 0.3
     fig, ax = plt.subplots()
@@ -28,14 +28,16 @@ def plot_one_parameter(config_normal, config_modified, y_name, figure_name):
     ax.set_title(figure_name)
     ax.set_xticks(x, specs)
     ax.legend(loc='upper right')
+    fig.autofmt_xdate()
+    plt.subplots_adjust(bottom=0.35)
     plt.setp(ax.get_xticklabels(), rotation=30, horizontalalignment='right')
     plt.savefig(F'{image_path}{figure_name}')
 
 normal_path = '/home/veteran/Computer-Architecture-Lab-CSE220/lab2/normal_stat_files/'
 modified_path = '/home/veteran/Computer-Architecture-Lab-CSE220/lab2/modified_stat_files/'
 image_path = '/home/veteran/Computer-Architecture-Lab-CSE220/lab2/images/'
-normal_dirs = os.listdir(normal_path)
-modified_dirs = os.listdir(modified_path)
+normal_dirs = sorted(os.listdir(normal_path))
+modified_dirs = sorted(os.listdir(modified_path))
 
 IPC = []
 BP_MISPRED = []
@@ -59,7 +61,16 @@ if __name__ == "__main__":
         ICACHE_MISS_M.append(ims_m)
         DCACHE_MISS_M.append(dms_m)
     
-    plot_one_parameter(IPC, IPC_M, 'IPC', 'Instruction Per Cycle')
+    IPC.append(sum(IPC) / len(IPC))
+    IPC_M.append(sum(IPC_M) / len(IPC_M))
+    BP_MISPRED.append(sum(BP_MISPRED) / len(BP_MISPRED))
+    BP_MISPRED_M.append(sum(BP_MISPRED_M) / len(BP_MISPRED_M))
+    ICACHE_MISS.append(sum(ICACHE_MISS) / len(ICACHE_MISS))
+    ICACHE_MISS_M.append(sum(ICACHE_MISS_M) / len(ICACHE_MISS_M))
+    DCACHE_MISS.append(sum(DCACHE_MISS) / len(DCACHE_MISS))
+    DCACHE_MISS_M.append(sum(DCACHE_MISS_M) / len(DCACHE_MISS_M))
+    
+    plot_one_parameter(IPC, IPC_M, 'Instruction Per Cycle (Inst/Cycle)', 'Instruction Per Cycle')
     plot_one_parameter(BP_MISPRED, BP_MISPRED_M, 'Branch Misprediction Ratio %', 'Branch Misprediction')
     plot_one_parameter(ICACHE_MISS, ICACHE_MISS_M, 'ICache Miss Ratio %', 'ICache Miss')
     plot_one_parameter(DCACHE_MISS, DCACHE_MISS_M, 'DCache Miss Ratio %', 'DCache Miss')
