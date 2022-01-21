@@ -29,8 +29,8 @@ def plot_one_parameter(config_normal, config_modified, y_name, figure_name):
     ax.set_xticks(x, specs)
     ax.legend(loc='upper right')
     fig.autofmt_xdate()
-    plt.subplots_adjust(bottom=0.35)
-    plt.setp(ax.get_xticklabels(), rotation=30, horizontalalignment='right')
+    plt.subplots_adjust(bottom=0.2)
+    plt.setp(ax.get_xticklabels(), rotation=25, horizontalalignment='right')
     plt.savefig(F'{image_path}{figure_name}')
 
 normal_path = '/home/veteran/Computer-Architecture-Lab-CSE220/lab2/normal_stat_files/'
