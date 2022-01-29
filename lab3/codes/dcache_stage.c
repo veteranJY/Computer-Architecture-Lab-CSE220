@@ -65,22 +65,29 @@ Dcache_Stage* dc = NULL;
 Hash_Table* fa_hash = NULL;
 Cache* fa_cache;
 
-void shadow_cache_stat(Dcache_Data* fa_line, Op* op) {
-  Hash_Table_Entry* fa_hash_entry = hash_table_access(fa_hash, (int64)(op->fetch_addr));
-      if (!fa_hash_entry) {
-        // Compulsory
-        Flag new_entry = FALSE;
-        hash_table_access_create(fa_hash, op->fetch_addr, &new_entry);
-        STAT_EVENT(op->proc_id, DCACHE_MISS_COMPULSORY);
-      }
-      else if (!fa_line) {
-        // Capacity
-        STAT_EVENT(op->proc_id, DCACHE_MISS_CAPACITY);
-      }
-      else if (fa_line) {
-        // Conflict
-        STAT_EVENT(op->proc_id, DCACHE_MISS_CONFLICT);
-      }
+void shadow_cache_stat(Addr fa_line_addr, Dcache_Data* fa_line, Op* op) {
+  /* hash_table_access_create: access the hash table.  Return the data
+   pointer if it hits an existing entry.  Otherwise, allocate a new
+   entry and return its data pointer. */
+  Flag new_entry;
+  // doesn't really matter what to store in the hashmap
+  hash_table_access_create(fa_hash, fa_line_addr, &new_entry);
+  if (new_entry == TRUE) {
+    // Compulsory, because hashmap creates a new entry
+    STAT_EVENT(op->proc_id, DCACHE_MISS_COMPULSORY);
+  } else if (new_entry == FALSE) {
+    // Two other catagories, since hashmap has seen it before
+    if (fa_line) {
+      // Conflict, because this miss did not happen in fa_cache
+      STAT_EVENT(op->proc_id, DCACHE_MISS_CONFLICT);
+    } else {
+      // Capacity, because this miss also happened in fa_cache
+      STAT_EVENT(op->proc_id, DCACHE_MISS_CAPACITY);
+    } 
+  } else {
+    // This should not happen
+    printf("warn: this should not happenx\n");
+  }
 }
 
 /**************************************************************************************/
@@ -188,6 +195,7 @@ void update_dcache_stage(Stage_Data* src_sd) {
   uns          oldest_index;
   int          start_op_count;
   Addr         line_addr;
+  Addr         fa_line_addr;
   uns          ii, jj;
 
   // {{{ phase 1 - move ops into the dcache stage
@@ -316,8 +324,11 @@ void update_dcache_stage(Stage_Data* src_sd) {
                                       &line_addr, TRUE);
 
     fa_line = (Dcache_Data*)cache_access(fa_cache, op->oracle_info.va,
-                                      &line_addr, TRUE);
-
+                                      &fa_line_addr, TRUE);
+    // should equal, because va & line size are the same
+    if (fa_line_addr != line_addr) {
+      printf("warn: line addr does not equalx\n");
+    }
 
     op->dcache_cycle = cycle_count;
     dc->idle_cycle   = MAX2(dc->idle_cycle, cycle_count + DCACHE_CYCLES);
@@ -459,7 +470,7 @@ void update_dcache_stage(Stage_Data* src_sd) {
           }
 
           if(!op->off_path) {
-            shadow_cache_stat(fa_line, op);
+            shadow_cache_stat(fa_line_addr, fa_line, op);
             STAT_EVENT(op->proc_id, DCACHE_MISS);
             STAT_EVENT(op->proc_id, DCACHE_MISS_ONPATH);
             STAT_EVENT(op->proc_id, DCACHE_MISS_LD_ONPATH);
@@ -515,7 +526,7 @@ void update_dcache_stage(Stage_Data* src_sd) {
           }
 
           if(!op->off_path) {
-            shadow_cache_stat(fa_line, op);
+            shadow_cache_stat(fa_line_addr, fa_line, op);
             STAT_EVENT(op->proc_id, DCACHE_MISS);
             STAT_EVENT(op->proc_id, DCACHE_MISS_ONPATH);
             STAT_EVENT(op->proc_id, DCACHE_MISS_LD_ONPATH);
@@ -574,7 +585,7 @@ void update_dcache_stage(Stage_Data* src_sd) {
           }
 
           if(!op->off_path) {
-            shadow_cache_stat(fa_line, op);
+            shadow_cache_stat(fa_line_addr, fa_line, op);
             STAT_EVENT(op->proc_id, DCACHE_MISS);
             STAT_EVENT(op->proc_id, DCACHE_MISS_ONPATH);
             STAT_EVENT(op->proc_id, DCACHE_MISS_ST_ONPATH);
@@ -629,7 +640,9 @@ Flag dcache_fill_line(Mem_Req* req) {
              N_BIT_MASK(LOG2(DCACHE_BANKS));
   Dcache_Data* data;
   Dcache_Data* fa_data;
+  Dcache_Data* fa_line;
   Addr         line_addr, repl_line_addr;
+  Addr fa_line_addr;
   Op*          op;
   Op**         op_p  = (Op**)list_start_head_traversal(&req->op_ptrs);
   Counter* op_unique = (Counter*)list_start_head_traversal(&req->op_uniques);
@@ -671,11 +684,6 @@ Flag dcache_fill_line(Mem_Req* req) {
     Flag repl_line_valid;
     data = (Dcache_Data*)get_next_repl_line(&dc->dcache, dc->proc_id, req->addr,
                                             &repl_line_addr, &repl_line_valid);
-    
-    fa_data = (Dcache_Data*)get_next_repl_line(fa_cache, dc->proc_id, req->addr,
-                                            &repl_line_addr, &repl_line_valid);
-
-
     if(repl_line_valid && data->dirty) {
       /* need to do a write-back */
       uns repl_proc_id = get_proc_id_from_cmp_addr(repl_line_addr);
@@ -716,8 +724,15 @@ Flag dcache_fill_line(Mem_Req* req) {
 
     data = (Dcache_Data*)cache_insert(&dc->dcache, dc->proc_id, req->addr,
                                       &line_addr, &repl_line_addr);
-    fa_data = (Dcache_Data*)cache_insert(fa_cache, dc->proc_id, req->addr,
-                                      &line_addr, &repl_line_addr);
+    
+    fa_line = (Dcache_Data*)cache_access(fa_cache, req->addr,
+                                  &fa_line_addr, TRUE);
+    if (fa_line == NULL) {
+      // only insert when NULL, i.e., a cache miss
+      // note that two vars are reused, but they are never used thereafter
+      fa_data = (Dcache_Data*)cache_insert(fa_cache, dc->proc_id, req->addr,
+                                  &line_addr, &repl_line_addr);
+    }
     DEBUG(dc->proc_id,
           "Filling dcache  off_path:%d addr:0x%s  :%7d index:%7d op_count:%d "
           "oldest:%lld\n",
